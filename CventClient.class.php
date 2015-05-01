@@ -15,23 +15,30 @@
 **     - GetUpdated - 10,000 IDs limit not handled
 ** ... Typicaly a limit of 25,000 ids returned, maximum 256 search filter, but depends on Client accounts
 **
+****************************************************
+**Adriana Dodge : 4/30/2015: Added New Fixes old on didn't work made it work.
+
 */
-ini_set('soap.wsdl_cache_enabled', 1); 
+ini_set('soap.wsdl_cache_enabled', 0); 
 ini_set('soap.wsdl_cache_ttl', 86400); //default: 86400, in seconds
+ini_set('max_execution_time', 500); //300 seconds = 5 minutes
 
 class CventClient extends SoapClient {
 	public $client;
 	public $ServerURL;
 	public $CventSessionHeader;
 	public $debug = false;
-	public $MAX_FILTER_SIZE = 100; # 256 doesn't seem to work.
-	public $RESULTS_PER_PAGE = 200;
+  	public $MAX_FILTER_SIZE = 200; 
+  	public $RESULTS_PER_PAGE = 100;
 	
 	public function CventClient() {
 	}
 
 	public function Login($acct, $username, $password) {
+		$orig_error_reporting = error_reporting();
+      		error_reporting(0);
 		$this->client = new SoapDebugClient("https://api.cvent.com/soap/V200611.ASMX?WSDL", array('trace' => true, 'exceptions' => true));
+		 error_reporting($orig_error_reporting);
 		$cache = true;
 		$file = 'cvent_api_session.txt';
 		if($cache && file_exists($file) && time() <= strtotime("+1 hour", $last = filemtime($file))) { 
@@ -100,6 +107,160 @@ class CventClient extends SoapClient {
 		return false;
 	}
 	
+/********************************* START NEW: Adriana Dodge **********************************************/
+	   public function GetContactsIds($Company) {    
+	    $response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'Company', 'Operator' => 'Equals', 'Value' => $Company)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	       return false;
+	  }
+
+
+	   public function GetContactsDataByCompany($Company) {    
+	    $response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'Company', 'Operator' => 'Equals', 'Value' => $Company)));
+	   $ids[] = $response->SearchResult->Id;
+	    for($i=0; $i <count($ids); $i++) {
+	      $results=$this->client->Retrieve((object) array('ObjectType' => 'Contact', 'Ids' => $ids[$i]));
+	    }
+    	return $results->RetrieveResult->CvObject;     
+  	}
+
+
+	  public function GetContactsDataByContactType($ContactType) {    
+	    $ids = $this->SearchContactsByContactType($ContactType);
+	   $results = array();
+	    $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'Contact', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+	/* Get all Invited to and event via event ID*/
+	
+	  public function GetInviteeDataByEventId($EventId) {    
+	      $ids = $this->SearchInviteeDataByEventId($EventId);   
+	     // print_r($ids);      
+	      $results = array();      
+	      $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'Invitee', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+	  public function SearchInviteeDataByEventId($EventId) {
+	    $response = $this->SearchByFilter('Invitee', 'AndSearch', array((object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $EventId)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+
+	/* Get all Registered to and event via event ID*/
+	
+	  public function GetContactsRegistrationDataByEventId($EventId) { 
+	
+	      $ids = $this->SearchRegistrationDataByEventId($EventId);   
+	     // print_r($ids);      
+	      $results = array();      
+	      $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'Registration', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+
+	  public function SearchRegistrationDataByEventId($EventId) {
+	    $response = $this->SearchByFilter('Registration', 'AndSearch', array((object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $EventId)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+	
+	/* Get all Registered to and event via  Registration Path Id*/
+	
+	  public function GetContactsRegistrationDataByRegistrationType($RegistrationType,$EventId) { 
+	
+	      $ids = $this->SearchRegistrationDataByRegistrationType($RegistrationType,$EventId);   
+	     // print_r($ids);      
+	      $results = array();      
+	      $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'Registration', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+
+	  public function SearchRegistrationDataByRegistrationType($RegistrationType,$EventId) {
+	    $response = $this->SearchByFilter('Registration', 'AndSearch', array((object) array('Field' => 'RegistrationType', 'Operator' => 'Equals', 'Value' => $RegistrationType), (object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $EventId)  ));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+
+
+	/* Get all EventQuestions to an event via event ID*/
+	
+	  public function GetContactsQuestionDataByEventId($EventId) { 
+	
+	      $ids = $this->SearchQuestionDataByEventId($EventId);   
+	     // print_r($ids);      
+	      $results = array();      
+	      $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'EventQuestion', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+
+	  public function SearchQuestionDataByEventId($EventId) {
+	    $response = $this->SearchByFilter('EventQuestion', 'AndSearch', array((object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $EventId)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+	  public function SearchContactsDataByEventId($EventId) {
+	    $response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $EventId)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+
+/********************************* END NEW: Adriana Dodge **********************************************/	
+	
+	
 	public function GetNumberOfGuests($eventId) {
 		// needs to be tested
 		$response = $this->SearchByFilter('Guest', 'AndSearch', array((object) array('Field' => 'EventId', 'Operator' => 'Equals', 'Value' => $eventId)));
@@ -121,11 +282,38 @@ class CventClient extends SoapClient {
 		return false;
 	}
 	
-	public function SearchContactsByGroupId($groupId) {
-		$response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'GroupId', 'Operator' => 'Equals', 'Value' => $groupId)));
-		if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
-		return false;
-	}
+/********************************* START NEW: Adriana Dodge **********************************************/	
+	
+	  public function GetContactsDataByGroupId($groupId) {    
+	      $ids = $this->SearchContactsByGroupId($groupId);   // print_r($ids);      
+	      $results = array();      
+	      $batch = array_chunk($ids, $this->MAX_FILTER_SIZE);
+	     //  print_r($batch); 
+	      for($j = 0; $j < count($batch); $j++) {           
+	        //print "CventClient::RetrievePages:: retrieving $objecttype using Ids from $j to ".($j+$this->MAX_FILTER_SIZE)."<br/>";
+	           $tmp = $this->client->Retrieve((object) array('ObjectType' => 'Contact', 'Ids' => $batch[$j]));        
+	            if(is_array($tmp->RetrieveResult->CvObject)) {
+	            $results = array_merge($results, $tmp->RetrieveResult->CvObject);
+	            } else {
+	             $results = array_merge($results, array($tmp->RetrieveResult->CvObject));
+	           }      
+	        }      
+	    return $results;     
+	  }
+
+
+	 public function SearchContactsByGroupId($groupId) {
+	    $response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'GroupId', 'Operator' => 'Equals', 'Value' => $groupId)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+	
+	   public function SearchContactsByContactType($ContactType) {
+	    $response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'ContactTypeCode', 'Operator' => 'Equals', 'Value' => $ContactType)));
+	    if(isset($response->SearchResult->Id)) return $response->SearchResult->Id;
+	    return false;
+	  }
+/********************************* END NEW: Adriana Dodge **********************************************/
 
 	public function SearchContactsByDistributionListId($distId) {
 		$response = $this->SearchByFilter('Contact', 'AndSearch', array((object) array('Field' => 'DistId', 'Operator' => 'Equals', 'Value' => $distId)));
@@ -151,6 +339,11 @@ class CventClient extends SoapClient {
 	public function RetrieveContacts($ids) {
 		return $this->RetrieveAllPages('Contact', $ids);
 	}
+	
+	 public function RetrieveRegistrants($ids) {
+    	return $this->RetrieveAllPages('Registration', $ids);
+  	}
+	
 	public function RetrieveDistributionLists($ids) {
 		return $this->RetrieveAllPages('DistributionList', $ids);
 	}
